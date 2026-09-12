@@ -247,23 +247,24 @@ def render_sidebar() -> Dict[str, Any]:
 
         if provider == "groq":
             groq_presets = [
-                "llama-3.3-70b-versatile",
                 "openai/gpt-oss-120b",
-                "llama-3.1-8b-instant",
-                "mixtral-8x7b-32768",
+                "openai/gpt-oss-20b",
+                "groq/compound",
+                "groq/compound-mini",
+                "qwen/qwen3.6-27b",
                 "Custom..."
             ]
-            default_g_model = get_config_val("GROQ_MODEL", "llama-3.3-70b-versatile")
+            default_g_model = get_config_val("GROQ_MODEL", "openai/gpt-oss-120b")
             default_idx = groq_presets.index(default_g_model) if default_g_model in groq_presets else 0
             
             selected_preset = st.selectbox(
                 "Groq Model",
                 options=groq_presets,
                 index=default_idx,
-                help="llama-3.3-70b-versatile is Meta's flagship 70B model with high reasoning and zero false refusals."
+                help="openai/gpt-oss-120b is the 120B flagship reasoning model on Groq."
             )
             if selected_preset == "Custom...":
-                model_name = st.text_input("Custom Groq Model", value="llama-3.3-70b-versatile")
+                model_name = st.text_input("Custom Groq Model", value="openai/gpt-oss-120b")
             else:
                 model_name = selected_preset
         elif provider == "gemini":
