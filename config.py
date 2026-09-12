@@ -1,44 +1,29 @@
 """
-Configuration & LLM setup for the LangGraph Research AI Agent.
-Supports multiple providers: Google Gemini, OpenAI, Groq, or Ollama.
+Configuration & Model Initializer for the Research AI Agent.
+Handles LLM connections across Groq, Gemini, OpenAI, and Ollama, and stores system prompts.
 """
 
 import os
+from typing import Optional
 from dotenv import load_dotenv
+from langchain_core.language_models.chat_models import BaseChatModel
 
-# Load .env file if available
+# Load environment variables
 load_dotenv()
 
 
-def get_llm(provider: str = None, model: str = None, temperature: float = 0.2):
+def get_llm(
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    temperature: float = 0.2
+) -> BaseChatModel:
     """
-    Instantiate and return a LangChain ChatModel based on availability or preference.
+    Initializes and returns a configured LangChain ChatModel.
+    Supports Groq, Google Gemini, OpenAI, and local Ollama.
     """
-    selected_provider = provider or os.getenv("DEFAULT_LLM_PROVIDER", "").lower()
+    selected_provider = (provider or os.getenv("DEFAULT_LLM_PROVIDER", "groq")).lower()
 
-    # 1. Google Gemini
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
-    if (selected_provider == "gemini" or not selected_provider) and gemini_key:
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        target_model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-        return ChatGoogleGenerativeAI(
-            model=target_model,
-            google_api_key=gemini_key,
-            temperature=temperature
-        )
-
-    # 2. OpenAI
-    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
-    if (selected_provider == "openai" or not selected_provider) and openai_key:
-        from langchain_openai import ChatOpenAI
-        target_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-        return ChatOpenAI(
-            model=target_model,
-            api_key=openai_key,
-            temperature=temperature
-        )
-
-    # 3. Groq
+    # 1. Groq (High Speed & Open Source Models)
     groq_key = os.getenv("GROQ_API_KEY", "").strip()
     if (selected_provider == "groq" or not selected_provider) and groq_key:
         from langchain_groq import ChatGroq
@@ -50,24 +35,43 @@ def get_llm(provider: str = None, model: str = None, temperature: float = 0.2):
             max_tokens=3500
         )
 
-    # 4. Ollama (local, no API key needed)
+    # 2. Google Gemini
+    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if (selected_provider == "gemini") and gemini_key:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        target_model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        return ChatGoogleGenerativeAI(
+            model=target_model,
+            google_api_key=gemini_key,
+            temperature=temperature
+        )
+
+    # 3. OpenAI
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if (selected_provider == "openai") and openai_key:
+        from langchain_openai import ChatOpenAI
+        target_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        return ChatOpenAI(
+            model=target_model,
+            api_key=openai_key,
+            temperature=temperature
+        )
+
+    # 4. Ollama (Local Execution)
     if selected_provider == "ollama":
         from langchain_ollama import ChatOllama
         target_model = model or "llama3.1"
         return ChatOllama(model=target_model, temperature=temperature)
 
-    # If nothing matched or no keys found
     raise ValueError(
-        "No valid LLM API key detected!\n"
-        "Please set GEMINI_API_KEY, OPENAI_API_KEY, or GROQ_API_KEY in your .env file,\n"
-        "or run with a local Ollama model.\n"
-        "See .env.example for guidance."
+        "No active LLM API key detected!\n"
+        "Please configure GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in your .env file."
     )
 
 
-# --- Prompt Templates ---
-
-# --- Prompt Templates (Ground-Truth Anchored & Zero Fluff) ---
+# ==========================================
+# Ground-Truth System Prompts
+# ==========================================
 
 PLANNER_SYSTEM_PROMPT = """You are a precise, objective Research Strategist.
 Your goal is to formulate 2 to 3 sharp, targeted search queries to gather the latest factual information directly answering the user's prompt.

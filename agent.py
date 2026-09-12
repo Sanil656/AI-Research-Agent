@@ -1,10 +1,11 @@
 """
-LangGraph assembly for the Research AI Agent.
-Coordinates planning, web searching, reflection, report synthesis, and thread memory.
+LangGraph Assembly for the Autonomous Research AI Agent.
+Coordinates Planning, Web Evidence Retrieval (MCP), Critical Reflection,
+Report Synthesis, and Thread Memory Persistence.
 """
 
-import json
 import re
+import json
 from typing import Dict, Any, List, Optional
 from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
@@ -20,16 +21,17 @@ from config import (
 )
 
 
-def _clean_json_response(content: str) -> Dict[str, Any]:
-    """Helper to extract clean JSON from LLM text that might include markdown code fences."""
+def _extract_clean_json(content: str) -> Dict[str, Any]:
+    """Safely extracts a JSON dictionary from LLM output text or Markdown code blocks."""
     content = content.strip()
-    # Try direct parse
+
+    # 1. Direct JSON parse attempt
     try:
         return json.loads(content)
     except json.JSONDecodeError:
         pass
 
-    # Try extracting inside ```json ... ``` or ``` ... ```
+    # 2. Extract from markdown code block ```json ... ```
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
     if match:
         try:
@@ -37,32 +39,35 @@ def _clean_json_response(content: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             pass
 
-    # Try finding the first '{' and last '}'
-    first_brace = content.find("{")
-    last_brace = content.rfind("}")
-    if first_brace != -1 and last_brace != -1:
+    # 3. Extract between first '{' and last '}'
+    start_idx = content.find("{")
+    end_idx = content.rfind("}")
+    if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
         try:
-            return json.loads(content[first_brace:last_brace + 1])
+            return json.loads(content[start_idx:end_idx + 1])
         except json.JSONDecodeError:
             pass
 
     return {}
 
 
+# ==========================================
+# Graph Node Implementations
+# ==========================================
+
 def plan_node(state: ResearchState) -> Dict[str, Any]:
-    """Deconstructs the research topic into analytical sub-dimensions and initial search queries with thread context."""
+    """Deconstructs the research subject into concrete focus areas and search queries."""
     llm = get_llm()
 
-    # Incorporate conversation thread context if available
+    # Build conversation context from previous turns in the thread
     history_context = ""
     chat_history = state.get("chat_history", [])
     if chat_history:
-        history_snippets = []
-        for msg in chat_history[-4:]:  # last 2 turns
-            role = msg.get("role", "user").capitalize()
-            content_preview = msg.get("content", "")[:180]
-            history_snippets.append(f"{role}: {content_preview}")
-        history_context = "Prior Conversation Thread Context:\n" + "\n".join(history_snippets) + "\n\n"
+        snippets = [
+            f"{msg.get('role', 'user').capitalize()}: {msg.get('content', '')[:160]}"
+            for msg in chat_history[-4:]
+        ]
+        history_context = "Prior Conversation Thread Context:\n" + "\n".join(snippets) + "\n\n"
 
     user_prompt = f"{history_context}Current Question / Topic to investigate:\n\n{state['topic']}"
 
@@ -71,7 +76,7 @@ def plan_node(state: ResearchState) -> Dict[str, Any]:
         HumanMessage(content=user_prompt)
     ])
 
-    data = _clean_json_response(response.content)
+    data = _extract_clean_json(response.content)
     plan = data.get("plan", [f"Key aspects of {state['topic']}"])
     queries = data.get("queries", [state["topic"]])
 
@@ -83,22 +88,23 @@ def plan_node(state: ResearchState) -> Dict[str, Any]:
 
 
 def search_node(state: ResearchState) -> Dict[str, Any]:
-    """Executes web searches for active queries and collects deduplicated, high-signal snippets."""
+    """Executes live web searches via MCP tools and collects deduplicated snippets."""
     queries = state.get("queries", [])
     existing_urls = {f.get("url") for f in state.get("findings", [])}
     new_findings = []
 
-    for q in queries:
-        results = mcp_search_web(q, max_results=3)
-        for r in results:
-            url = r.get("url", "").strip()
-            content = r.get("content", "").strip()
-            # Filter out duplicates and empty/too-short snippets
+    for query in queries:
+        results = mcp_search_web(query=query, max_results=3)
+        for item in results:
+            url = item.get("url", "").strip()
+            content = item.get("content", "").strip()
+
+            # Filter duplicates and empty snippets
             if url and url not in existing_urls and len(content) > 30:
                 existing_urls.add(url)
                 new_findings.append({
-                    "query": q,
-                    "title": r.get("title", "Web Source").strip(),
+                    "query": query,
+                    "title": item.get("title", "Web Source").strip(),
                     "url": url,
                     "content": content
                 })
@@ -110,16 +116,15 @@ def search_node(state: ResearchState) -> Dict[str, Any]:
 
 
 def reflect_node(state: ResearchState) -> Dict[str, Any]:
-    """Critically evaluates current knowledge base, identifies gaps, and decides if more research is required."""
+    """Critically assesses collected evidence and determines if further search cycles are required."""
     llm = get_llm()
 
-    # Format findings concisely for LLM assessment
-    findings_summary = []
-    for idx, f in enumerate(state.get("findings", []), 1):
-        findings_summary.append(
-            f"[{idx}] Source: {f.get('title')} ({f.get('url')})\nEvidence: {f.get('content')}\n"
-        )
-    findings_text = "\n".join(findings_summary) if findings_summary else "No web results found yet."
+    # Format accumulated evidence for reflection
+    findings_list = [
+        f"[{i}] Source: {f.get('title')} ({f.get('url')})\nEvidence: {f.get('content')}\n"
+        for i, f in enumerate(state.get("findings", []), 1)
+    ]
+    findings_text = "\n".join(findings_list) if findings_list else "No web results found yet."
 
     user_prompt = (
         f"Research Topic: {state['topic']}\n\n"
@@ -134,7 +139,7 @@ def reflect_node(state: ResearchState) -> Dict[str, Any]:
         HumanMessage(content=user_prompt)
     ])
 
-    data = _clean_json_response(response.content)
+    data = _extract_clean_json(response.content)
     critique = data.get("critique", "Evaluation completed.")
     is_sufficient = data.get("is_sufficient", False)
     follow_up_queries = data.get("follow_up_queries", [])
@@ -148,28 +153,30 @@ def reflect_node(state: ResearchState) -> Dict[str, Any]:
 
 
 def should_continue(state: ResearchState) -> str:
-    """Routing logic: continue research loop if depth is lacking and under max iterations."""
+    """Conditional Edge: Routes to deeper search or proceeds to final synthesis."""
     if state.get("is_sufficient") or state.get("iteration") > state.get("max_iterations"):
         return "synthesize"
     return "search"
 
 
 def synthesize_node(state: ResearchState) -> Dict[str, Any]:
-    """Generates the final direct research report and an optional free AI visual concept."""
+    """Synthesizes verified evidence into a final publication report and generates a free concept visual."""
     llm = get_llm()
 
-    findings_text = ""
-    for idx, f in enumerate(state.get("findings", []), 1):
-        findings_text += f"\n- [{f.get('title')}]({f.get('url')}): {f.get('content')}"
+    findings_text = "\n".join(
+        f"- [{f.get('title')}]({f.get('url')}): {f.get('content')}"
+        for f in state.get("findings", [])
+    )
 
     # Thread context for synthesis
     history_context = ""
     chat_history = state.get("chat_history", [])
     if chat_history:
-        history_snippets = []
-        for msg in chat_history[-2:]:
-            history_snippets.append(f"{msg.get('role').capitalize()}: {msg.get('content')[:200]}")
-        history_context = "Prior Conversation Context:\n" + "\n".join(history_snippets) + "\n\n"
+        snippets = [
+            f"{msg.get('role').capitalize()}: {msg.get('content')[:180]}"
+            for msg in chat_history[-2:]
+        ]
+        history_context = "Prior Conversation Context:\n" + "\n".join(snippets) + "\n\n"
 
     user_prompt = (
         f"{history_context}"
@@ -190,22 +197,22 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
     image_url = None
     image_prompt = None
 
-    # Generate 100% free visual illustration if enabled
+    # Generate 100% free AI concept visual via MCP Flux tool if enabled
     if state.get("enable_image", True):
         try:
-            visual_prompt_sys = (
+            visual_sys_prompt = (
                 "You are an expert visual designer. Based on the topic and findings, craft a single, "
                 "vivid, 3D technical illustration or photorealistic concept prompt (15-25 words) for a text-to-image generator (Flux). "
                 "Focus on concrete visual elements, lighting, materials, and 8k detail. Output ONLY the raw prompt."
             )
             v_res = llm.invoke([
-                SystemMessage(content=visual_prompt_sys),
+                SystemMessage(content=visual_sys_prompt),
                 HumanMessage(content=f"Topic: {state['topic']}\nSummary: {report_content[:250]}")
             ])
             image_prompt = v_res.content.strip().strip('"').strip("'")
-            image_url = mcp_generate_image(image_prompt)
-        except Exception as e:
-            print(f"[Image Prompt Error] {e}")
+            image_url = mcp_generate_image(prompt=image_prompt)
+        except Exception as err:
+            print(f"[Visual Generation Error] {err}")
 
     new_messages = [
         {"role": "user", "content": state["topic"]},
@@ -220,8 +227,12 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
     }
 
 
+# ==========================================
+# Graph Construction & Compilation
+# ==========================================
+
 def create_research_graph(checkpointer: Optional[Any] = None):
-    """Builds and compiles the LangGraph StateGraph with optional MemorySaver checkpointer."""
+    """Assembles and compiles the StateGraph workflow with persistent memory."""
     workflow = StateGraph(ResearchState)
 
     # Add Nodes
@@ -246,7 +257,7 @@ def create_research_graph(checkpointer: Optional[Any] = None):
 
     workflow.add_edge("synthesize", END)
 
-    # Use provided checkpointer or default to in-memory checkpointer
+    # Use default MemorySaver if no checkpointer is supplied
     if checkpointer is None:
         checkpointer = MemorySaver()
 

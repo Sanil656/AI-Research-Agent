@@ -1,35 +1,34 @@
 """
-State definition for the LangGraph Research AI Agent with Thread, Chat History & Free Image Generation support.
+State definition for the LangGraph Research AI Agent.
+Defines the schema for multi-turn research, live evidence accumulation, and media generation.
 """
 
-from typing import TypedDict, List, Dict, Any, Annotated, Optional
 import operator
+from typing import TypedDict, List, Dict, Any, Annotated, Optional
 
 
 class ResearchState(TypedDict):
-    # Core inputs and configuration
+    """Represents the complete state of a research investigation workflow."""
+
+    # --- 1. Target & Depth Settings ---
     topic: str
     max_iterations: int
     iteration: int
     enable_image: Optional[bool]
 
-    # Conversation history across turns in a thread
+    # --- 2. Multi-turn Conversation Memory ---
     chat_history: Annotated[List[Dict[str, str]], operator.add]
 
-    # Research plan & strategy
+    # --- 3. Planning & Evidence Gathering ---
     plan: List[str]
-
-    # Current queries to search for in this loop
     queries: List[str]
-
-    # Accumulated findings with reducer to easily append new findings across loops
     findings: Annotated[List[Dict[str, Any]], operator.add]
 
-    # Critical reflection, gap identification, and decision on depth
+    # --- 4. Critical Assessment & Routing ---
     reflection: str
     is_sufficient: bool
 
-    # Final synthesized output and visuals
+    # --- 5. Synthesized Output & Media ---
     final_report: str
     image_url: Optional[str]
     image_prompt: Optional[str]
