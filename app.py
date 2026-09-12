@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 from langgraph.checkpoint.memory import MemorySaver
 
 from agent import create_research_graph
+from config import get_config_val
 
 # Load environment configuration
 load_dotenv()
@@ -223,12 +224,33 @@ def render_sidebar() -> Dict[str, Any]:
             index=0
         )
 
+        # Dynamic Key Check & Input
+        key_env_map = {
+            "groq": "GROQ_API_KEY",
+            "gemini": "GEMINI_API_KEY",
+            "openai": "OPENAI_API_KEY"
+        }
+        
+        if provider in key_env_map:
+            env_var = key_env_map[provider]
+            current_key = get_config_val(env_var)
+            if not current_key:
+                user_key = st.text_input(
+                    f"🔑 {provider.upper()} API Key",
+                    type="password",
+                    help=f"Enter your {provider.capitalize()} API key (saved for this session)."
+                )
+                if user_key:
+                    os.environ[env_var] = user_key.strip()
+            else:
+                st.caption(f"🔑 {provider.capitalize()} Key: `Connected` ✅")
+
         if provider == "groq":
-            model_name = st.text_input("Groq Model", value=os.getenv("GROQ_MODEL", "openai/gpt-oss-120b"))
+            model_name = st.text_input("Groq Model", value=get_config_val("GROQ_MODEL", "openai/gpt-oss-120b"))
         elif provider == "gemini":
-            model_name = st.text_input("Gemini Model", value=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"))
+            model_name = st.text_input("Gemini Model", value=get_config_val("GEMINI_MODEL", "gemini-2.5-flash"))
         elif provider == "openai":
-            model_name = st.text_input("OpenAI Model", value=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+            model_name = st.text_input("OpenAI Model", value=get_config_val("OPENAI_MODEL", "gpt-4o-mini"))
         else:
             model_name = st.text_input("Ollama Model", value="llama3.1")
 
@@ -248,7 +270,7 @@ def render_sidebar() -> Dict[str, Any]:
 
         # Status Indicators
         st.caption("System Status:")
-        tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
+        tavily_key = get_config_val("TAVILY_API_KEY")
         if tavily_key:
             st.success("🔎 Web Search: Tavily API (Active)")
         else:

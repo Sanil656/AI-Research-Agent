@@ -12,6 +12,20 @@ from langchain_core.language_models.chat_models import BaseChatModel
 load_dotenv()
 
 
+def get_config_val(key: str, default: str = "") -> str:
+    """Fetches configuration from environment variables or Streamlit secrets."""
+    val = os.getenv(key)
+    if val:
+        return val.strip()
+    try:
+        import streamlit as st
+        if hasattr(st, "secrets") and key in st.secrets:
+            return str(st.secrets[key]).strip()
+    except Exception:
+        pass
+    return default
+
+
 def get_llm(
     provider: Optional[str] = None,
     model: Optional[str] = None,
@@ -21,13 +35,13 @@ def get_llm(
     Initializes and returns a configured LangChain ChatModel.
     Supports Groq, Google Gemini, OpenAI, and local Ollama.
     """
-    selected_provider = (provider or os.getenv("DEFAULT_LLM_PROVIDER", "groq")).lower()
+    selected_provider = (provider or get_config_val("DEFAULT_LLM_PROVIDER", "groq")).lower()
 
     # 1. Groq (High Speed & Open Source Models)
-    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    groq_key = get_config_val("GROQ_API_KEY")
     if (selected_provider == "groq" or not selected_provider) and groq_key:
         from langchain_groq import ChatGroq
-        target_model = model or os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        target_model = model or get_config_val("GROQ_MODEL", "openai/gpt-oss-120b")
         return ChatGroq(
             model=target_model,
             api_key=groq_key,
@@ -36,10 +50,10 @@ def get_llm(
         )
 
     # 2. Google Gemini
-    gemini_key = os.getenv("GEMINI_API_KEY", "").strip()
+    gemini_key = get_config_val("GEMINI_API_KEY")
     if (selected_provider == "gemini") and gemini_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
-        target_model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+        target_model = model or get_config_val("GEMINI_MODEL", "gemini-2.5-flash")
         return ChatGoogleGenerativeAI(
             model=target_model,
             google_api_key=gemini_key,
@@ -47,10 +61,10 @@ def get_llm(
         )
 
     # 3. OpenAI
-    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+    openai_key = get_config_val("OPENAI_API_KEY")
     if (selected_provider == "openai") and openai_key:
         from langchain_openai import ChatOpenAI
-        target_model = model or os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+        target_model = model or get_config_val("OPENAI_MODEL", "gpt-4o-mini")
         return ChatOpenAI(
             model=target_model,
             api_key=openai_key,
@@ -65,7 +79,7 @@ def get_llm(
 
     raise ValueError(
         "No active LLM API key detected!\n"
-        "Please configure GROQ_API_KEY, GEMINI_API_KEY, or OPENAI_API_KEY in your .env file."
+        "Please provide an API key in the sidebar settings or configure GROQ_API_KEY in your Streamlit Secrets / .env file."
     )
 
 
