@@ -11,7 +11,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from state import ResearchState
-from tools import search_web
+from tools import search_web, get_free_image_url
 from config import (
     get_llm,
     PLANNER_SYSTEM_PROMPT,
@@ -155,7 +155,7 @@ def should_continue(state: ResearchState) -> str:
 
 
 def synthesize_node(state: ResearchState) -> Dict[str, Any]:
-    """Generates the final direct, relevant, and citation-backed research answer."""
+    """Generates the final direct research report and an optional free AI visual concept."""
     llm = get_llm()
 
     findings_text = ""
@@ -186,13 +186,36 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
         HumanMessage(content=user_prompt)
     ])
 
+    report_content = response.content
+    image_url = None
+    image_prompt = None
+
+    # Generate 100% free visual illustration if enabled
+    if state.get("enable_image", True):
+        try:
+            visual_prompt_sys = (
+                "You are an expert visual designer. Based on the topic and findings, craft a single, "
+                "vivid, 3D technical illustration or photorealistic concept prompt (15-25 words) for a text-to-image generator (Flux). "
+                "Focus on concrete visual elements, lighting, materials, and 8k detail. Output ONLY the raw prompt."
+            )
+            v_res = llm.invoke([
+                SystemMessage(content=visual_prompt_sys),
+                HumanMessage(content=f"Topic: {state['topic']}\nSummary: {report_content[:250]}")
+            ])
+            image_prompt = v_res.content.strip().strip('"').strip("'")
+            image_url = get_free_image_url(image_prompt)
+        except Exception as e:
+            print(f"[Image Prompt Error] {e}")
+
     new_messages = [
         {"role": "user", "content": state["topic"]},
-        {"role": "assistant", "content": response.content}
+        {"role": "assistant", "content": report_content}
     ]
 
     return {
-        "final_report": response.content,
+        "final_report": report_content,
+        "image_url": image_url,
+        "image_prompt": image_prompt,
         "chat_history": new_messages
     }
 

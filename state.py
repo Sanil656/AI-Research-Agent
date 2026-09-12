@@ -1,8 +1,8 @@
 """
-State definition for the LangGraph Research AI Agent with Thread & Chat History support.
+State definition for the LangGraph Research AI Agent with Thread, Chat History & Free Image Generation support.
 """
 
-from typing import TypedDict, List, Dict, Any, Annotated
+from typing import TypedDict, List, Dict, Any, Annotated, Optional
 import operator
 
 
@@ -11,6 +11,7 @@ class ResearchState(TypedDict):
     topic: str
     max_iterations: int
     iteration: int
+    enable_image: Optional[bool]
 
     # Conversation history across turns in a thread
     chat_history: Annotated[List[Dict[str, str]], operator.add]
@@ -28,5 +29,7 @@ class ResearchState(TypedDict):
     reflection: str
     is_sufficient: bool
 
-    # Final synthesized output
+    # Final synthesized output and visuals
     final_report: str
+    image_url: Optional[str]
+    image_prompt: Optional[str]

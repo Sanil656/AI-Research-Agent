@@ -1,7 +1,8 @@
 """
 Streamlit Frontend for the LangGraph Autonomous Research AI Agent.
 Features full multi-threaded conversation history, checkpointer persistence,
-real-time research step visualization, and publication report export.
+real-time research step visualization, 100% Free AI Visual Generation (Flux),
+and publication report export.
 """
 
 import os
@@ -148,6 +149,12 @@ with st.sidebar:
         help="Number of reflection and live web deepening cycles."
     )
 
+    enable_image = st.checkbox(
+        "🎨 Generate Free AI Visual (Flux)",
+        value=True,
+        help="Automatically generates a 3D technical infographic using Pollinations Flux (100% free, no API key)."
+    )
+
     tavily_key = os.getenv("TAVILY_API_KEY", "").strip()
     if tavily_key:
         st.success("🔎 Search: Tavily API (Active)")
@@ -178,6 +185,14 @@ for msg_idx, msg in enumerate(current_thread["messages"]):
         if msg["role"] == "user":
             st.markdown(msg["content"])
         else:
+            # If AI image exists, render banner
+            if msg.get("image_url"):
+                st.image(
+                    msg["image_url"],
+                    caption=f"🎨 Concept Visual: {msg.get('image_prompt', 'AI Render')}",
+                    use_container_width=True
+                )
+
             # If research steps exist, show expandable trace
             steps = msg.get("steps")
             if steps:
@@ -246,6 +261,8 @@ if user_query:
             "reflection": ""
         }
         final_report = ""
+        generated_image_url = None
+        generated_image_prompt = None
 
         with st.status("🧠 Agent thinking: Formulating research strategy...", expanded=True) as status_box:
             try:
@@ -259,13 +276,16 @@ if user_query:
                     "topic": user_query,
                     "max_iterations": max_depth,
                     "iteration": 0,
+                    "enable_image": enable_image,
                     "chat_history": chat_history_state,
                     "plan": [],
                     "queries": [],
                     "findings": [],
                     "reflection": "",
                     "is_sufficient": False,
-                    "final_report": ""
+                    "final_report": "",
+                    "image_url": None,
+                    "image_prompt": None
                 }
 
                 config = {"configurable": {"thread_id": current_thread["id"]}}
@@ -306,10 +326,12 @@ if user_query:
                                     st.code(q, language="text")
 
                         elif node_name == "synthesize":
-                            status_box.update(label="📝 Final Synthesis: Crafting response...")
+                            status_box.update(label="📝 Final Synthesis: Crafting response & generating visual concept...")
                             final_report = output.get("final_report", "")
+                            generated_image_url = output.get("image_url")
+                            generated_image_prompt = output.get("image_prompt")
 
-                status_box.update(label="✅ Research Complete!", state="complete", expanded=False)
+                status_box.update(label="✅ Research & Visual Concept Complete!", state="complete", expanded=False)
 
             except Exception as e:
                 status_box.update(label="⚠️ Error during execution", state="error", expanded=True)
@@ -317,13 +339,23 @@ if user_query:
                 final_report = f"An error occurred: {str(e)}"
 
         if final_report:
+            # Display generated image if available
+            if generated_image_url:
+                st.image(
+                    generated_image_url,
+                    caption=f"🎨 Concept Visual: {generated_image_prompt}",
+                    use_container_width=True
+                )
+
             st.markdown(final_report)
             
             # Save assistant message to thread
             current_thread["messages"].append({
                 "role": "assistant",
                 "content": final_report,
-                "steps": step_collector
+                "steps": step_collector,
+                "image_url": generated_image_url,
+                "image_prompt": generated_image_prompt
             })
 
             st.download_button(

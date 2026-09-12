@@ -1,9 +1,11 @@
 """
-Search tools for the Research AI Agent.
-Supports DuckDuckGo (text + fresh news) and Tavily (optional API key).
+Search and media tools for the Research AI Agent.
+Supports DuckDuckGo (text + fresh news), Tavily, and 100% Free AI Image Generation (Pollinations Flux).
 """
 
 import os
+import random
+import urllib.parse
 from typing import List, Dict, Any
 
 
@@ -75,3 +77,14 @@ def search_web(query: str, max_results: int = 5) -> List[Dict[str, str]]:
         print(f"[Search Error] Search failed for query '{query}': {e}")
 
     return results
+
+
+def get_free_image_url(prompt: str, width: int = 1024, height: int = 640, model: str = "flux") -> str:
+    """
+    Generate a 100% free AI image URL using Pollinations Flux engine.
+    Requires ZERO API keys, zero signup, and no external dependencies.
+    """
+    clean_prompt = prompt.strip()
+    encoded_prompt = urllib.parse.quote(clean_prompt)
+    seed = random.randint(1000, 999999)
+    return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width={width}&height={height}&nologo=true&model={model}&seed={seed}"
