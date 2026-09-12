@@ -199,20 +199,29 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
 
     # Generate 100% free AI concept visual via MCP Flux tool if enabled
     if state.get("enable_image", True):
-        try:
-            visual_sys_prompt = (
-                "You are an expert visual designer. Based on the topic and findings, craft a single, "
-                "vivid, 3D technical illustration or photorealistic concept prompt (15-25 words) for a text-to-image generator (Flux). "
-                "Focus on concrete visual elements, lighting, materials, and 8k detail. Output ONLY the raw prompt."
-            )
-            v_res = llm.invoke([
-                SystemMessage(content=visual_sys_prompt),
-                HumanMessage(content=f"Topic: {state['topic']}\nSummary: {report_content[:250]}")
-            ])
-            image_prompt = v_res.content.strip().strip('"').strip("'")
-            image_url = mcp_generate_image(prompt=image_prompt)
-        except Exception as err:
-            print(f"[Visual Generation Error] {err}")
+        # Check if report was a safety refusal or error
+        refusal_triggers = ["i'm sorry", "i cannot", "i can't help", "as an ai", "policy violation"]
+        is_refusal = any(report_content.lower().strip().startswith(t) for t in refusal_triggers)
+        
+        if not is_refusal:
+            try:
+                visual_sys_prompt = (
+                    "You are an expert visual designer. Based on the topic and findings, craft a single, "
+                    "vivid, 3D technical illustration or photorealistic concept prompt (15-25 words) for a text-to-image generator (Flux). "
+                    "Focus on concrete visual elements, lighting, materials, and 8k detail. Output ONLY the raw prompt."
+                )
+                v_res = llm.invoke([
+                    SystemMessage(content=visual_sys_prompt),
+                    HumanMessage(content=f"Topic: {state['topic']}\nSummary: {report_content[:250]}")
+                ])
+                candidate_prompt = v_res.content.strip().strip('"').strip("'")
+                
+                # Check candidate prompt
+                if candidate_prompt and not any(candidate_prompt.lower().startswith(t) for t in refusal_triggers):
+                    image_prompt = candidate_prompt
+                    image_url = mcp_generate_image(prompt=image_prompt)
+            except Exception as err:
+                print(f"[Visual Generation Error] {err}")
 
     new_messages = [
         {"role": "user", "content": state["topic"]},
