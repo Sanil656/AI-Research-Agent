@@ -11,7 +11,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from state import ResearchState
-from tools import search_web, get_free_image_url
+from mcp_tools import mcp_search_web, mcp_generate_image
 from config import (
     get_llm,
     PLANNER_SYSTEM_PROMPT,
@@ -89,7 +89,7 @@ def search_node(state: ResearchState) -> Dict[str, Any]:
     new_findings = []
 
     for q in queries:
-        results = search_web(q, max_results=3)
+        results = mcp_search_web(q, max_results=3)
         for r in results:
             url = r.get("url", "").strip()
             content = r.get("content", "").strip()
@@ -203,7 +203,7 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
                 HumanMessage(content=f"Topic: {state['topic']}\nSummary: {report_content[:250]}")
             ])
             image_prompt = v_res.content.strip().strip('"').strip("'")
-            image_url = get_free_image_url(image_prompt)
+            image_url = mcp_generate_image(image_prompt)
         except Exception as e:
             print(f"[Image Prompt Error] {e}")
 

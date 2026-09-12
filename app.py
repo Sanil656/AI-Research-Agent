@@ -161,6 +161,8 @@ with st.sidebar:
     else:
         st.info("🔎 Search: DuckDuckGo (Live & News)")
 
+    st.success("🔌 Protocol: Model Context Protocol (MCP) Active")
+
 
 # --- Main Workspace ---
 current_thread = st.session_state.threads[st.session_state.current_thread_id]
