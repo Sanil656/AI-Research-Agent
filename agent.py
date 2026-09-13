@@ -1,7 +1,49 @@
 """
 LangGraph Assembly for the Autonomous Research AI Agent.
-Coordinates Planning, Web Evidence Retrieval (MCP), Critical Reflection,
-Report Synthesis, and Thread Memory Persistence.
+
+Architecture Overview:
+======================
+                  ┌───────────────────────────────┐
+                  │ 💬 Start: User Research Topic  │
+                  └───────────────┬───────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐
+                     │ 🧠 Node 1: 'plan'       │
+                     │  - Deconstructs topic   │
+                     │  - Formulates queries   │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                     ┌─────────────────────────┐◄──────────────┐
+                     │ 🔎 Node 2: 'search'     │               │
+                     │  - MCP Live Web Search  │               │
+                     │  - MCP Academic (arXiv) │               │
+                     └────────────┬────────────┘               │
+                                  │                            │ (Gaps Found)
+                                  ▼                            │
+                     ┌─────────────────────────┐               │
+                     │ 🪞 Node 3: 'reflect'    │               │
+                     │  - Evaluates coverage   │               │
+                     │  - Knowledge gap check  │               │
+                     └────────────┬────────────┘               │
+                                  │                            │
+                                  ▼                            │
+                       /─────────────────────\                 │
+                      <  is_sufficient?       >────────────────┘
+                       \─────────────────────/
+                                  │ (Depth Attained)
+                                  ▼
+                     ┌─────────────────────────┐
+                     │ 📝 Node 4: 'synthesize' │
+                     │  - Ground-truth report  │
+                     │  - MCP Flux Visual Card │
+                     └────────────┬────────────┘
+                                  │
+                                  ▼
+                  ┌───────────────────────────────┐
+                  │ 🚀 End: Verified Intelligence │
+                  └───────────────────────────────┘
 """
 
 import re
@@ -12,7 +54,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from state import ResearchState
-from mcp_tools import mcp_search_web, mcp_generate_image
+from mcp_tools import mcp_search_web, mcp_search_academic, mcp_generate_image
 from config import (
     get_llm,
     PLANNER_SYSTEM_PROMPT,
@@ -22,16 +64,19 @@ from config import (
 
 
 def _extract_clean_json(content: str) -> Dict[str, Any]:
-    """Safely extracts a JSON dictionary from LLM output text or Markdown code blocks."""
+    """
+    Safely extracts and parses a JSON object from raw LLM output text,
+    handling Markdown code blocks (```json ... ```) or embedded JSON objects.
+    """
     content = content.strip()
 
-    # 1. Direct JSON parse attempt
+    # Strategy 1: Direct JSON parse
     try:
         return json.loads(content)
     except json.JSONDecodeError:
         pass
 
-    # 2. Extract from markdown code block ```json ... ```
+    # Strategy 2: Extract from markdown code block ```json ... ```
     match = re.search(r"```(?:json)?\s*([\s\S]*?)\s*```", content)
     if match:
         try:
@@ -39,7 +84,7 @@ def _extract_clean_json(content: str) -> Dict[str, Any]:
         except json.JSONDecodeError:
             pass
 
-    # 3. Extract between first '{' and last '}'
+    # Strategy 3: Extract between first '{' and last '}'
     start_idx = content.find("{")
     end_idx = content.rfind("}")
     if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
@@ -51,15 +96,18 @@ def _extract_clean_json(content: str) -> Dict[str, Any]:
     return {}
 
 
-# ==========================================
-# Graph Node Implementations
-# ==========================================
+# =====================================================================
+# Graph Node 1: Research Strategist (Planning)
+# =====================================================================
 
 def plan_node(state: ResearchState) -> Dict[str, Any]:
-    """Deconstructs the research subject into concrete focus areas and search queries."""
+    """
+    Formulates a targeted research strategy and decomposes the inquiry into
+    2 to 3 high-signal search queries.
+    """
     llm = get_llm()
 
-    # Build conversation context from previous turns in the thread
+    # Include recent thread history for context in multi-turn conversations
     history_context = ""
     chat_history = state.get("chat_history", [])
     if chat_history:
@@ -67,9 +115,9 @@ def plan_node(state: ResearchState) -> Dict[str, Any]:
             f"{msg.get('role', 'user').capitalize()}: {msg.get('content', '')[:160]}"
             for msg in chat_history[-4:]
         ]
-        history_context = "Prior Conversation Thread Context:\n" + "\n".join(snippets) + "\n\n"
+        history_context = "Prior Conversation Context:\n" + "\n".join(snippets) + "\n\n"
 
-    user_prompt = f"{history_context}Current Question / Topic to investigate:\n\n{state['topic']}"
+    user_prompt = f"{history_context}Research Topic / Inquiry:\n\n{state['topic']}"
 
     response = llm.invoke([
         SystemMessage(content=PLANNER_SYSTEM_PROMPT),
@@ -87,19 +135,26 @@ def plan_node(state: ResearchState) -> Dict[str, Any]:
     }
 
 
+# =====================================================================
+# Graph Node 2: Live Evidence Gathering (MCP Search)
+# =====================================================================
+
 def search_node(state: ResearchState) -> Dict[str, Any]:
-    """Executes live web searches via MCP tools and collects deduplicated snippets."""
+    """
+    Executes live web searches and academic literature lookups via FastMCP tools,
+    deduplicating sources and filtering low-signal snippets.
+    """
     queries = state.get("queries", [])
     existing_urls = {f.get("url") for f in state.get("findings", [])}
-    new_findings = []
+    new_findings: List[Dict[str, Any]] = []
 
     for query in queries:
-        results = mcp_search_web(query=query, max_results=3)
-        for item in results:
+        # 1. Real-time web & news search via MCP
+        web_results = mcp_search_web(query=query, max_results=3)
+        for item in web_results:
             url = item.get("url", "").strip()
             content = item.get("content", "").strip()
 
-            # Filter duplicates and empty snippets
             if url and url not in existing_urls and len(content) > 30:
                 existing_urls.add(url)
                 new_findings.append({
@@ -109,17 +164,38 @@ def search_node(state: ResearchState) -> Dict[str, Any]:
                     "content": content
                 })
 
+        # 2. Check academic papers on arXiv if query has scientific / technical terms
+        academic_keywords = ["algorithm", "quantum", "architecture", "benchmark", "neural", "physics", "model", "theorem"]
+        if any(kw in query.lower() for kw in academic_keywords):
+            paper_results = mcp_search_academic(query=query, max_results=2)
+            for paper in paper_results:
+                url = paper.get("url", "").strip()
+                if url and url not in existing_urls:
+                    existing_urls.add(url)
+                    new_findings.append({
+                        "query": query,
+                        "title": paper.get("title", "Academic Paper"),
+                        "url": url,
+                        "content": paper.get("content", "")
+                    })
+
     return {
         "findings": new_findings,
         "queries": []
     }
 
 
+# =====================================================================
+# Graph Node 3: Critical Reflection & Knowledge Gap Analysis
+# =====================================================================
+
 def reflect_node(state: ResearchState) -> Dict[str, Any]:
-    """Critically assesses collected evidence and determines if further search cycles are required."""
+    """
+    Critically assesses accumulated evidence against the user's inquiry,
+    identifies gaps, and decides whether deeper search cycles are needed.
+    """
     llm = get_llm()
 
-    # Format accumulated evidence for reflection
     findings_list = [
         f"[{i}] Source: {f.get('title')} ({f.get('url')})\nEvidence: {f.get('content')}\n"
         for i, f in enumerate(state.get("findings", []), 1)
@@ -152,15 +228,30 @@ def reflect_node(state: ResearchState) -> Dict[str, Any]:
     }
 
 
+# =====================================================================
+# Conditional Edge: Dynamic Termination & Loop Routing
+# =====================================================================
+
 def should_continue(state: ResearchState) -> str:
-    """Conditional Edge: Routes to deeper search or proceeds to final synthesis."""
+    """
+    Evaluates termination conditions:
+    - If depth is sufficient OR max cycles exceeded -> Route to 'synthesize'.
+    - Otherwise -> Loop back to 'search' with follow-up queries.
+    """
     if state.get("is_sufficient") or state.get("iteration") > state.get("max_iterations"):
         return "synthesize"
     return "search"
 
 
+# =====================================================================
+# Graph Node 4: Final Synthesis & Visual Rendering
+# =====================================================================
+
 def synthesize_node(state: ResearchState) -> Dict[str, Any]:
-    """Synthesizes verified evidence into a final publication report and generates a free concept visual."""
+    """
+    Synthesizes accumulated evidence into a cohesive, publication-grade research report
+    with verified citations and generates a 100% free AI concept visual.
+    """
     llm = get_llm()
 
     findings_text = "\n".join(
@@ -168,7 +259,6 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
         for f in state.get("findings", [])
     )
 
-    # Thread context for synthesis
     history_context = ""
     chat_history = state.get("chat_history", [])
     if chat_history:
@@ -197,12 +287,11 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
     image_url = None
     image_prompt = None
 
-    # Generate 100% free AI concept visual via MCP Flux tool if enabled
+    # Generate 100% free AI concept visual via FastMCP Flux tool if enabled
     if state.get("enable_image", True):
-        # Check if report was a safety refusal or error
         refusal_triggers = ["i'm sorry", "i cannot", "i can't help", "as an ai", "policy violation"]
         is_refusal = any(report_content.lower().strip().startswith(t) for t in refusal_triggers)
-        
+
         if not is_refusal:
             try:
                 visual_sys_prompt = (
@@ -215,13 +304,12 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
                     HumanMessage(content=f"Topic: {state['topic']}\nSummary: {report_content[:250]}")
                 ])
                 candidate_prompt = v_res.content.strip().strip('"').strip("'")
-                
-                # Check candidate prompt
+
                 if candidate_prompt and not any(candidate_prompt.lower().startswith(t) for t in refusal_triggers):
                     image_prompt = candidate_prompt
                     image_url = mcp_generate_image(prompt=image_prompt)
             except Exception as err:
-                print(f"[Visual Generation Error] {err}")
+                print(f"[Visual Generation Notice] {err}")
 
     new_messages = [
         {"role": "user", "content": state["topic"]},
@@ -236,25 +324,31 @@ def synthesize_node(state: ResearchState) -> Dict[str, Any]:
     }
 
 
-# ==========================================
-# Graph Construction & Compilation
-# ==========================================
+# =====================================================================
+# StateGraph Builder & Compiler
+# =====================================================================
 
 def create_research_graph(checkpointer: Optional[Any] = None):
-    """Assembles and compiles the StateGraph workflow with persistent memory."""
+    """
+    Constructs and compiles the cyclic LangGraph workflow with persistent memory.
+    
+    Returns:
+        A compiled LangGraph executable graph.
+    """
     workflow = StateGraph(ResearchState)
 
-    # Add Nodes
+    # 1. Register Graph Nodes
     workflow.add_node("plan", plan_node)
     workflow.add_node("search", search_node)
     workflow.add_node("reflect", reflect_node)
     workflow.add_node("synthesize", synthesize_node)
 
-    # Add Edges
+    # 2. Register Graph Edges & Cycles
     workflow.add_edge(START, "plan")
     workflow.add_edge("plan", "search")
     workflow.add_edge("search", "reflect")
 
+    # 3. Dynamic Reflection Loop
     workflow.add_conditional_edges(
         "reflect",
         should_continue,
@@ -266,8 +360,9 @@ def create_research_graph(checkpointer: Optional[Any] = None):
 
     workflow.add_edge("synthesize", END)
 
-    # Use default MemorySaver if no checkpointer is supplied
+    # 4. Attach Checkpointer (Default: MemorySaver)
     if checkpointer is None:
         checkpointer = MemorySaver()
 
     return workflow.compile(checkpointer=checkpointer)
+
