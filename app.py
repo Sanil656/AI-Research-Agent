@@ -14,6 +14,14 @@ from langgraph.checkpoint.memory import MemorySaver
 
 from agent import create_research_graph
 from config import get_config_val
+from database import (
+    init_db,
+    register_user,
+    authenticate_user,
+    save_user_thread,
+    load_user_threads,
+    delete_user_thread
+)
 
 # Load environment configuration
 load_dotenv()
@@ -141,12 +149,109 @@ def setup_page():
             font-weight: 600 !important;
             border-left: 3px solid #6366f1 !important;
         }
+
+        /* Authentication Card */
+        .auth-card {
+            background-color: #0f172a;
+            border: 1px solid #1e293b;
+            border-radius: 12px;
+            padding: 24px;
+            max-width: 480px;
+            margin: 40px auto;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+        .auth-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 6px;
+        }
+        .auth-subtitle {
+            color: #94a3b8;
+            font-size: 0.88rem;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .user-profile-badge {
+            background: linear-gradient(135deg, #1e293b, #0f172a);
+            border: 1px solid #334155;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 12px;
+        }
     </style>
     """, unsafe_allow_html=True)
 
 
 # ==========================================
-# 2. Session State & Thread Initialization
+# 2. Authentication Screen (MySQL Backed)
+# ==========================================
+
+def render_auth_screen():
+    """Renders the centered Sign In / Sign Up interface."""
+    setup_page()
+
+    col_l, col_center, col_r = st.columns([1, 2, 1])
+    with col_center:
+        st.markdown('<div class="auth-title">🔬 Autonomous Research AI</div>', unsafe_allow_html=True)
+        st.markdown('<div class="auth-subtitle">Sign in to access your persistent research history & intelligence agent</div>', unsafe_allow_html=True)
+
+        tab_login, tab_signup = st.tabs(["🔑 Sign In", "📝 Create Account"])
+
+        # 1. Sign In Tab
+        with tab_login:
+            with st.form("login_form"):
+                username_or_email = st.text_input("Username or Email", placeholder="alex or alex@example.com")
+                password = st.text_input("Password", type="password", placeholder="••••••••")
+                submit_login = st.form_submit_button("Sign In", type="primary", use_container_width=True)
+
+                if submit_login:
+                    user_data, msg = authenticate_user(username_or_email, password)
+                    if user_data:
+                        st.session_state.authenticated_user = user_data
+                        # Load user's saved threads from MySQL
+                        saved_threads = load_user_threads(user_data["id"])
+                        if saved_threads:
+                            st.session_state.threads = saved_threads
+                            st.session_state.current_thread_id = list(saved_threads.keys())[0]
+                        st.success(f"Welcome back, {user_data['username']}! 👋")
+                        time.sleep(0.5)
+                        st.rerun()
+                    else:
+                        st.error(msg)
+
+        # 2. Sign Up Tab
+        with tab_signup:
+            with st.form("signup_form"):
+                new_username = st.text_input("Choose Username", placeholder="e.g. datascientist")
+                new_email = st.text_input("Email Address", placeholder="name@company.com")
+                new_password = st.text_input("Create Password", type="password", placeholder="Min. 6 characters")
+                submit_signup = st.form_submit_button("Create Account", type="primary", use_container_width=True)
+
+                if submit_signup:
+                    success, msg = register_user(new_username, new_email, new_password)
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+
+        st.divider()
+        col_g1, col_g2 = st.columns([1, 1])
+        with col_g1:
+            if st.button("⚡ Continue as Guest", use_container_width=True, help="Explore without saving history to MySQL"):
+                st.session_state.authenticated_user = {
+                    "id": "guest_" + str(uuid.uuid4())[:6],
+                    "username": "Guest User",
+                    "email": "guest@local",
+                    "created_at": time.strftime("%Y-%m-%d")
+                }
+                st.rerun()
+        with col_g2:
+            st.caption("🔒 Secured with bcrypt salted hashing & MySQL isolated threads.")
+
+
+# ==========================================
+# 3. Session State & Thread Initialization
 # ==========================================
 
 def init_session_state():
@@ -180,7 +285,19 @@ def init_session_state():
 def render_sidebar() -> Dict[str, Any]:
     """Renders the sidebar navigation, settings, and provider options."""
     with st.sidebar:
-        st.markdown("### 🔬 Research AI Assistant")
+        # User Profile Header
+        user = st.session_state.get("authenticated_user", {})
+        username = user.get("username", "User")
+        is_guest = user.get("id", "").startswith("guest_")
+
+        col_u1, col_u2 = st.columns([4, 1])
+        with col_u1:
+            st.markdown(f'<div class="user-profile-badge">👤 <b>{username}</b><br><span style="font-size:0.75rem; color:#94a3b8;">{"⚡ Guest Account" if is_guest else "🔒 MySQL Synced"}</span></div>', unsafe_allow_html=True)
+        with col_u2:
+            if st.button("🚪", key="btn_logout", help="Log out of account"):
+                st.session_state.pop("authenticated_user", None)
+                st.session_state.pop("threads", None)
+                st.rerun()
 
         # New Thread Button
         if st.button("➕ New Research Chat", type="primary", use_container_width=True):
@@ -210,6 +327,8 @@ def render_sidebar() -> Dict[str, Any]:
             with col_del:
                 if len(st.session_state.threads) > 1:
                     if st.button("✕", key=f"del_{tid}", help="Delete thread"):
+                        if not is_guest and "id" in user:
+                            delete_user_thread(user["id"], tid)
                         del st.session_state.threads[tid]
                         st.session_state.current_thread_id = list(st.session_state.threads.keys())[0]
                         st.rerun()
@@ -508,6 +627,11 @@ def execute_research(user_query: str, current_thread: Dict[str, Any], settings: 
             }
             current_thread["messages"].append(assistant_msg)
 
+            # Persist thread to MySQL for registered users
+            user = st.session_state.get("authenticated_user", {})
+            if user and not user.get("id", "").startswith("guest_"):
+                save_user_thread(user["id"], current_thread["id"], current_thread["title"], current_thread["messages"])
+
             # Render styled message
             render_assistant_message(assistant_msg, len(current_thread["messages"]) - 1)
 
@@ -520,6 +644,16 @@ def execute_research(user_query: str, current_thread: Dict[str, Any], settings: 
 
 def main():
     """Main application loop."""
+    # 1. Initialize MySQL database schema on launch
+    if "db_initialized" not in st.session_state:
+        init_db()
+        st.session_state.db_initialized = True
+
+    # 2. Authentication Gatekeeper
+    if "authenticated_user" not in st.session_state:
+        render_auth_screen()
+        return
+
     setup_page()
     init_session_state()
 
