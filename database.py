@@ -47,26 +47,31 @@ def _get_config_val(key: str, default: str = "") -> str:
 
 def get_db_connection():
     """
-    Establishes a MySQL database connection using configured credentials.
+    Establishes a MySQL/TiDB database connection using configured credentials.
     Returns the connection object or raises an exception.
     """
     import mysql.connector
 
     host = _get_config_val("MYSQL_HOST", "localhost")
-    port = int(_get_config_val("MYSQL_PORT", "3306"))
+    port = int(_get_config_val("MYSQL_PORT", "4000" if "tidb" in host.lower() else "3306"))
     user = _get_config_val("MYSQL_USER", "root")
     password = _get_config_val("MYSQL_PASSWORD", "")
-    database = _get_config_val("MYSQL_DATABASE", "research_agent_db")
+    database = _get_config_val("MYSQL_DATABASE", "test" if "tidb" in host.lower() else "research_agent_db")
 
-    conn = mysql.connector.connect(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        database=database,
-        autocommit=True
-    )
-    return conn
+    conn_kwargs = {
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "database": database,
+        "autocommit": True
+    }
+    
+    # Enable SSL for remote cloud databases (TiDB / Aiven / AWS)
+    if host not in ("localhost", "127.0.0.1"):
+        conn_kwargs["ssl_disabled"] = False
+
+    return mysql.connector.connect(**conn_kwargs)
 
 
 def init_db() -> bool:
@@ -77,27 +82,29 @@ def init_db() -> bool:
     try:
         import mysql.connector
 
-        # Connect to MySQL server (without specifying DB first to create DB if needed)
-        host = _get_config_val("MYSQL_HOST", "localhost")
-        port = int(_get_config_val("MYSQL_PORT", "3306"))
-        user = _get_config_val("MYSQL_USER", "root")
-        password = _get_config_val("MYSQL_PASSWORD", "")
-        database = _get_config_val("MYSQL_DATABASE", "research_agent_db")
+        # 1. Try connecting directly to target database
+        try:
+            conn = get_db_connection()
+        except Exception:
+            # If database doesn't exist on local MySQL, try creating it
+            host = _get_config_val("MYSQL_HOST", "localhost")
+            port = int(_get_config_val("MYSQL_PORT", "3306"))
+            user = _get_config_val("MYSQL_USER", "root")
+            password = _get_config_val("MYSQL_PASSWORD", "")
+            database = _get_config_val("MYSQL_DATABASE", "research_agent_db")
 
-        admin_conn = mysql.connector.connect(
-            host=host,
-            port=port,
-            user=user,
-            password=password,
-            autocommit=True
-        )
-        cursor = admin_conn.cursor()
-        cursor.execute(f"CREATE DATABASE IF NOT EXISTS `{database}` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")
-        cursor.close()
-        admin_conn.close()
-
-        # Connect to target database and create tables
-        conn = get_db_connection()
+            admin_conn = mysql.connector.connect(
+                host=host,
+                port=port,
+                user=user,
+                password=password,
+                autocommit=True
+            )
+            cur = admin_conn.cursor()
+            cur.execute(f"CREATE DATABASE IF NOT EXISTS `{database}` CHARACTER SET utf8mb4;")
+            cur.close()
+            admin_conn.close()
+            conn = get_db_connection()
         cur = conn.cursor()
 
         # 1. Users Table
