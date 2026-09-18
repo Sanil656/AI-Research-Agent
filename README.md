@@ -10,7 +10,6 @@
 [![FastMCP](https://img.shields.io/badge/Protocol-Model%20Context%20Protocol%20(MCP)-8A2BE2.svg?style=flat)](https://github.com/jlowin/fastmcp)
 [![Groq](https://img.shields.io/badge/Inference-Groq%20LPU%20Ultra--Fast-F55036.svg?style=flat)](https://groq.com/)
 [![Database: MySQL](https://img.shields.io/badge/Database-MySQL%20%2F%20TiDB%20Cloud-00758F.svg?style=flat&logo=mysql&logoColor=white)](https://www.mysql.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 [**🌐 Explore Live Demo**](https://ai-research-agent-cpap9aq7vfxuvnbzkfkhck.streamlit.app/) • [**✨ Key Features**](#-key-features) • [**🧠 Architecture**](#-system-architecture) • [**🗄️ Database**](#-mysql-database--security) • [**⚡ Quick Start**](#-quick-start) • [**🚀 Deployment**](#-one-click-cloud-deployment)
 
@@ -236,10 +235,6 @@ You can deploy your own instance to **Streamlit Community Cloud** for free:
 - **Git-Protected**: Local `.env` credentials and database passwords are permanently protected via `.gitignore`.
 
 ---
-
-## 📄 License
-
-This project is licensed under the **MIT License**.
 
 <div align="center">
 
