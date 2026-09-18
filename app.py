@@ -263,16 +263,25 @@ def init_session_state():
         st.session_state.graph = create_research_graph(checkpointer=st.session_state.checkpointer)
 
     if "threads" not in st.session_state:
-        default_id = "thread_" + str(uuid.uuid4())[:8]
-        st.session_state.threads = {
-            default_id: {
-                "id": default_id,
-                "title": "New Research Session",
-                "created_at": time.strftime("%b %d, %H:%M"),
-                "messages": []
+        user = st.session_state.get("authenticated_user", {})
+        saved_threads = {}
+        if user and not user.get("id", "").startswith("guest_"):
+            saved_threads = load_user_threads(user["id"])
+
+        if saved_threads:
+            st.session_state.threads = saved_threads
+            st.session_state.current_thread_id = list(saved_threads.keys())[0]
+        else:
+            default_id = "thread_" + str(uuid.uuid4())[:8]
+            st.session_state.threads = {
+                default_id: {
+                    "id": default_id,
+                    "title": "New Research Session",
+                    "created_at": time.strftime("%b %d, %H:%M"),
+                    "messages": []
+                }
             }
-        }
-        st.session_state.current_thread_id = default_id
+            st.session_state.current_thread_id = default_id
 
     if "current_thread_id" not in st.session_state or st.session_state.current_thread_id not in st.session_state.threads:
         st.session_state.current_thread_id = list(st.session_state.threads.keys())[0]
